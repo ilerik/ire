@@ -13,11 +13,15 @@ use tokio_io::{AsyncRead, AsyncWrite};
 use tokio_io::codec::{Decoder, Encoder, Framed};
 
 use crypto::{Aes256, Signature, SigningPrivateKey, AES_BLOCK_SIZE};
-use data::{Hash, RouterIdentity};
+use data::{Hash, I2PString, RouterIdentity, RouterInfo};
 use i2np::Message;
 use super::DHSessionKeyBuilder;
 
 mod frame;
+
+lazy_static! {
+    pub static ref NTCP_STYLE: I2PString = I2PString::new("NTCP");
+}
 
 // Max NTCP message size is 16kB
 const NTCP_MTU: usize = 16384;
@@ -1385,20 +1389,22 @@ impl Engine {
         &self,
         own_ri: RouterIdentity,
         own_key: SigningPrivateKey,
-        peer_ri: RouterIdentity,
-        addr: &SocketAddr,
+        peer_ri: RouterInfo,
         handle: &Handle,
     ) -> Box<Future<Item = Framed<TcpStream, Codec>, Error = io::Error>> {
+        // TODO return error if there are no valid NTCP addresses (for some reason)
+        let addr = peer_ri.address(&NTCP_STYLE).unwrap().addr().unwrap();
+
         // Connect to the peer
         // Return a transport ready for sending and receiving Frames
         // The layer above will convert I2NP packets to Frames
         // (or should the Engine handle timesync packets itself?)
-        let transport = Box::new(TcpStream::connect(&addr, &handle).and_then(|socket| {
+        let transport = Box::new(TcpStream::connect(&addr, &handle).and_then(move |socket| {
             HandshakeTransport::<TcpStream, OutboundHandshakeCodec, OBHandshakeState>::connect(
                 socket,
                 own_ri,
                 own_key,
-                peer_ri,
+                peer_ri.router_id,
             )
         }));
 
